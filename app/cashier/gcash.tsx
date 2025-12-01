@@ -51,28 +51,16 @@ export default function GCashPayment({
 
       // Record payment in background (non-blocking)
       if (orderId) {
-        // Fire and forget - don't await
-        supabase
-          .from("payment")
-          .insert({
-            order_id: orderId,
-            payment_date: new Date().toISOString(),
-            amount_paid: totalAmount,
-            payment_method: "GCash",
-            payment_status: "Completed",
-            transaction_id: txId,
-          })
-          .catch((error) => {
-            console.error("Background payment recording error:", error)
-          })
+        // Fire and forget - don't await (API call handled by main processOrderWithPayment, not here)
+        // Removed: await supabase.from('payment').insert(...)
       }
 
-      // Auto-close after 2 seconds
+      // Auto-close success modal after 2 seconds and complete payment
       setTimeout(() => {
         setShowSuccess(false)
         setIsProcessing(false)
         onPaymentComplete(txId)
-        onClose()
+        // Don't call onClose() here - let the main component handle modal closing
       }, 2000)
     } catch (error) {
       console.error("Payment error:", error)

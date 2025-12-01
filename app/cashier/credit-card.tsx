@@ -123,32 +123,13 @@ export default function CreditCardPayment({
       // Show success immediately
       setShowSuccess(true)
 
-      // Record payment in background (non-blocking)
-      if (orderId) {
-        // Fire and forget - don't await
-        supabase
-          .from("payment")
-          .insert({
-            order_id: orderId,
-            payment_date: new Date().toISOString(),
-            amount_paid: totalAmount,
-            payment_method: "Credit Card",
-            payment_status: "Completed",
-            transaction_id: txId,
-            card_last_4: cardDigits.slice(-4),
-            cardholder_name: cardName,
-          })
-          .catch((error) => {
-            console.error("Background payment recording error:", error)
-          })
-      }
+      // Record payment in background (API call handled by processOrderWithPayment, NOT here)
+      // Removed: payment DB insert from modal
 
-      // Auto-close after 2 seconds
       setTimeout(() => {
         setShowSuccess(false)
         setIsProcessing(false)
         onPaymentComplete(txId)
-        onClose()
       }, 2000)
     } catch (error) {
       console.error("Payment error:", error)

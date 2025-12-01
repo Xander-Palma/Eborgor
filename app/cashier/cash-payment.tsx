@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { View, Text, TouchableOpacity, StyleSheet, TextInput, Modal, ActivityIndicator } from "react-native"
 import { router } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
@@ -21,6 +21,15 @@ export default function CashPayment({ visible, onClose, totalAmount, onPaymentCo
   const [isProcessing, setIsProcessing] = useState(false)
 
   const change = parseFloat(amountReceived) - totalAmount
+
+  // Clear input and focus when modal opens
+  useEffect(() => {
+    if (visible) {
+      setAmountReceived("")
+      setError("")
+      setIsProcessing(false)
+    }
+  }, [visible])
 
   const handlePay = async () => {
     const received = parseFloat(amountReceived)

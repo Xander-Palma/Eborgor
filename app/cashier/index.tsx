@@ -87,7 +87,7 @@ export default function CashierPOS() {
   const [menuLoading, setMenuLoading] = useState(true)
   const [userRole, setUserRole] = useState<"admin" | "cashier">("cashier")
   const [showPaymentMethodModal, setShowPaymentMethodModal] = useState(false)
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<"Cash" | "PayPal" | "Credit Card" | "GCash" | null>(null)
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<"Cash" | "Other" | "Credit Card" | "GCash" | null>(null)
   const [showCashPayment, setShowCashPayment] = useState(false)
   const [showGCashPayment, setShowGCashPayment] = useState(false)
   const [showCreditCardPayment, setShowCreditCardPayment] = useState(false)
@@ -390,7 +390,7 @@ export default function CashierPOS() {
   /**
    * Handle payment method selection
    */
-  const handlePaymentMethodSelect = (method: "Cash" | "PayPal" | "Credit Card" | "GCash") => {
+  const handlePaymentMethodSelect = (method: "Cash" | "Other" | "Credit Card" | "GCash") => {
     setSelectedPaymentMethod(method)
     setShowPaymentMethodModal(false)
 
@@ -400,7 +400,7 @@ export default function CashierPOS() {
       setShowGCashPayment(true)
     } else if (method === "Credit Card") {
       setShowCreditCardPayment(true)
-    } else if (method === "PayPal") {
+    } else if (method === "Other") {
       setShowPayPalPayment(true)
     }
   }
@@ -430,6 +430,9 @@ export default function CashierPOS() {
     
     try {
       const { orderItemsJson, total, customerName: custName } = pendingOrderData;
+      const subtotal = orderItemsJson.reduce((sum: number, item: any) => sum + (item.unit_price * item.quantity), 0);
+      const tax = 6.0;
+      const discount = 0.0;
       const orderDate = new Date().toISOString();
       const transactionId: string = paymentData?.transactionId || `${paymentMethod}-${Date.now()}`;
       console.log('Creating order with transaction ID:', transactionId);
@@ -466,14 +469,14 @@ export default function CashierPOS() {
       }
       console.log('Order created with ID:', orderId);
 
-      // 2. Prepare order items with subtotals
+      // 2. Prepare order items (subtotal is generated automatically by database)
       console.log('Inserting order items...');
       const orderItemsWithId = orderItemsJson.map(item => ({
         order_id: orderId,
         product_id: item.product_id,
         quantity: item.quantity,
-        unit_price: item.price,
-        subtotal: item.price * item.quantity
+        unit_price: item.unit_price
+        // subtotal is GENERATED ALWAYS AS (quantity * unit_price) STORED
       }));
 
       // 3. Insert order items in a single batch
@@ -510,11 +513,7 @@ export default function CashierPOS() {
         amount_paid: total,
         payment_method: validPaymentMethod,
         payment_status: 'Completed',
-        transaction_reference: transactionId, // Changed from transaction_id to match schema
-        ...(validPaymentMethod === 'Cash' && paymentData.amountReceived && {
-          amount_received: paymentData.amountReceived,
-          change_given: paymentData.change || 0
-        })
+        transaction_reference: transactionId
       };
       
       console.log('Inserting payment with data:', paymentDataToInsert);
@@ -530,24 +529,7 @@ export default function CashierPOS() {
         throw new Error(`Payment recording failed: ${paymentError.message}`);
       }
 
-      // 5. Update inventory for each item
-      console.log('Updating inventory...');
-      for (const item of orderItemsJson) {
-        try {
-          const { error: inventoryError } = await supabase.rpc('decrement_inventory', {
-            p_product_id: item.product_id,
-            p_quantity: item.quantity
-          });
-          
-          if (inventoryError) {
-            console.warn(`Inventory update failed for product ${item.product_id}:`, inventoryError);
-            // Continue with other items even if one fails
-          }
-        } catch (inventoryError) {
-          console.warn(`Error updating inventory for product ${item.product_id}:`, inventoryError);
-          // Non-critical error, continue processing
-        }
-      }
+      // 5. Inventory is automatically updated via database trigger when order_product records are inserted
 
       // 6. Verify the payment was recorded
       console.log('Verifying payment...');
@@ -572,9 +554,34 @@ export default function CashierPOS() {
       setCurrentOrderNumber(orderId + 1);
       setOrderItems([]);
       setPendingOrderData(null);
-      setShowReceiptModal(true);
 
-      // 8. Show success message with order details
+      // 8. Set completed order data for receipt modal
+      // Use the current orderItems state which has product names
+      setCompletedOrderData({
+        orderNumber: orderId,
+        orderItems: orderItems, // This has the full product information including names
+        subtotal: subtotal,
+        tax: tax,
+        discount: discount,
+        total: total,
+        paymentMethod: paymentMethod,
+        transactionId: transactionId,
+        customerName: custName,
+        orderDate: new Date()
+      });
+
+      // Close payment modals before showing receipt
+      setShowCashPayment(false);
+      setShowGCashPayment(false);
+      setShowCreditCardPayment(false);
+      setShowPayPalPayment(false);
+
+      // Small delay to ensure modals close properly before showing receipt
+      setTimeout(() => {
+        setShowReceiptModal(true);
+      }, 100);
+
+      // 9. Show success message with order details
       const changeMessage = paymentData.change ? `\nChange: ₱${paymentData.change.toFixed(2)}` : '';
       Toast.show({
         type: 'success',
@@ -583,7 +590,7 @@ export default function CashierPOS() {
         visibilityTime: 5000,
       });
 
-      // 9. Refresh inventory in the background if refresh function is available
+      // 10. Refresh inventory in the background if refresh function is available
       if (refreshInventory) {
         console.log('Refreshing inventory...');
         try {
@@ -628,10 +635,7 @@ export default function CashierPOS() {
     } finally {
       console.log('Cleaning up UI state...');
       setIsConfirmingOrder(false);
-      setShowCashPayment(false);
-      setShowGCashPayment(false);
-      setShowCreditCardPayment(false);
-      setShowPayPalPayment(false);
+      // Payment modals are now closed in the success path only
     }
   };
 
@@ -842,7 +846,7 @@ export default function CashierPOS() {
           totalAmount={pendingOrderData.total}
           orderId={currentOrderNumber}
           onPaymentComplete={(transactionId) => {
-            processOrderWithPayment("PayPal", { transactionId })
+            processOrderWithPayment("Other", { transactionId })
           }}
         />
       )}
@@ -988,19 +992,19 @@ function OrderPanel() {
         <Text style={styles.paymentTitle}>Payment Summary</Text>
         <View style={styles.paymentRow}>
           <Text style={styles.paymentLabel}>Subtotal</Text>
-          <Text style={styles.paymentValue}>₱ {subtotal.toFixed(2)}</Text>
+          <Text style={styles.paymentValue}>₱{subtotal.toFixed(2)}</Text>
         </View>
         <View style={styles.paymentRow}>
           <Text style={styles.paymentLabel}>Tax</Text>
-          <Text style={styles.paymentValue}>₱ {tax.toFixed(2)}</Text>
+          <Text style={styles.paymentValue}>₱{tax.toFixed(2)}</Text>
         </View>
         <View style={styles.paymentRow}>
           <Text style={styles.paymentLabel}>Discount</Text>
-          <Text style={styles.paymentValue}>₱ {discount.toFixed(2)}</Text>
+          <Text style={styles.paymentValue}>₱{discount.toFixed(2)}</Text>
         </View>
         <View style={[styles.paymentRow, styles.paymentTotal]}>
           <Text style={styles.paymentTotalLabel}>Total</Text>
-          <Text style={styles.paymentTotalValue}>₱ {total.toFixed(2)}</Text>
+          <Text style={styles.paymentTotalValue}>₱{total.toFixed(2)}</Text>
         </View>
       </View>
 

@@ -69,12 +69,12 @@ export default function PayPalPayment({
       setStep("success")
       setShowSuccess(true)
 
-      // Auto-close after 2 seconds
+      // Auto-close success modal after 2 seconds and complete payment
       setTimeout(() => {
         setShowSuccess(false)
         setIsProcessing(false)
         onPaymentComplete(txId)
-        onClose()
+        // Don't call onClose() here - let the main component handle modal closing
       }, 2000)
     } catch (error) {
       console.error("Payment error:", error)
