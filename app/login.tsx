@@ -29,7 +29,7 @@ export default function LoginScreen() {
     if (selectedRole === "admin" && username === "admin" && password === "admin123") {
       // Store role in AsyncStorage
       await AsyncStorage.setItem("userRole", "admin")
-      router.replace("/cashier")
+      router.replace("/admin")
     } else if (selectedRole === "cashier" && username === "cashier" && password === "cashier123") {
       // Store role in AsyncStorage
       await AsyncStorage.setItem("userRole", "cashier")
