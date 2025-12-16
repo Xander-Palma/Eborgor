@@ -50,15 +50,18 @@ export default function UserManagement() {
       if (cashierError) throw cashierError
 
       // Combine and format users
-      const formattedAdmins: StaffUser[] = (admins || []).map(admin => ({
-        id: admin.admin_id,
-        username: admin.username,
-        full_name: admin.full_name,
-        email: admin.email,
-        role: "admin" as const,
-        is_active: admin.is_active,
-        created_at: admin.created_at,
-      }))
+      const formattedAdmins: StaffUser[] = (admins || [])
+        // Hide the seeded System Administrator account from the UI
+        .filter((admin: any) => admin.username !== "admin")
+        .map((admin: any) => ({
+          id: admin.admin_id,
+          username: admin.username,
+          full_name: admin.full_name,
+          email: admin.email,
+          role: "admin" as const,
+          is_active: admin.is_active,
+          created_at: admin.created_at,
+        }))
 
       const formattedCashiers: StaffUser[] = (cashiers || []).map(cashier => ({
         id: cashier.cashier_id,
@@ -401,6 +404,7 @@ export default function UserManagement() {
                   value={formData.username}
                   onChangeText={(text) => setFormData({ ...formData, username: text })}
                   autoCapitalize="none"
+                  maxLength={50}
                 />
               </View>
 
@@ -412,6 +416,7 @@ export default function UserManagement() {
                   value={formData.full_name}
                   onChangeText={(text) => setFormData({ ...formData, full_name: text })}
                   autoCapitalize="words"
+                  maxLength={100}
                 />
               </View>
 
@@ -424,6 +429,7 @@ export default function UserManagement() {
                     value={formData.password}
                     onChangeText={(text) => setFormData({ ...formData, password: text })}
                     secureTextEntry
+                  maxLength={50}
                   />
                 </View>
               )}
@@ -437,6 +443,7 @@ export default function UserManagement() {
                     value={formData.password}
                     onChangeText={(text) => setFormData({ ...formData, password: text })}
                     secureTextEntry
+                  maxLength={50}
                   />
                 </View>
               )}
@@ -450,6 +457,7 @@ export default function UserManagement() {
                   onChangeText={(text) => setFormData({ ...formData, email: text })}
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  maxLength={100}
                 />
               </View>
 

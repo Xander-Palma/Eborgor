@@ -15,6 +15,7 @@ DROP TABLE IF EXISTS category CASCADE;
 DROP TABLE IF EXISTS cashier CASCADE;
 DROP TABLE IF EXISTS admin CASCADE;
 DROP TABLE IF EXISTS customer CASCADE;
+DROP TABLE IF EXISTS transaction_log CASCADE;
 
 -- Customer Table
 CREATE TABLE customer (
@@ -119,7 +120,8 @@ CREATE TABLE payment (
 -- Inventory Table
 CREATE TABLE inventory (
   item_id SERIAL PRIMARY KEY,
-  product_id INT NOT NULL UNIQUE REFERENCES product(product_id) ON DELETE CASCADE,
+  product_id INT NOT NULL REFERENCES product(product_id) ON DELETE CASCADE,
+  ingredient VARCHAR(100) NOT NULL,
   admin_id INT REFERENCES admin(admin_id) ON DELETE SET NULL,
   quantity_in_stock INT NOT NULL DEFAULT 0 CHECK (quantity_in_stock >= 0),
   minimum_threshold INT DEFAULT 10 CHECK (minimum_threshold >= 0),
@@ -189,6 +191,57 @@ BEGIN
     RETURN NEW;
 END;
 $$ language 'plpgsql';
+
+-- Decrement ingredient_inventory whenever an order_product row is inserted
+CREATE OR REPLACE FUNCTION update_ingredient_inventory_on_order()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- For each ingredient used by this product, subtract quantity_per_product * NEW.quantity
+  UPDATE ingredient_inventory ii
+  SET
+    quantity_in_stock = GREATEST(
+      0,
+      ii.quantity_in_stock - (NEW.quantity * pi.quantity_per_product)
+    ),
+    last_updated = CURRENT_TIMESTAMP
+  FROM product_ingredient pi
+  WHERE
+    pi.ingredient_id = ii.ingredient_id
+    AND pi.product_id = NEW.product_id;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_update_ingredient_inventory
+AFTER INSERT ON order_product
+FOR EACH ROW
+EXECUTE FUNCTION update_ingredient_inventory_on_order();
+
+-- Restore ingredient_inventory when an order is cancelled
+CREATE OR REPLACE FUNCTION restore_ingredient_inventory_on_cancel()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF OLD.status <> 'Cancelled' AND NEW.status = 'Cancelled' THEN
+    UPDATE ingredient_inventory ii
+    SET
+      quantity_in_stock = ii.quantity_in_stock + (op.quantity * pi.quantity_per_product),
+      last_updated = CURRENT_TIMESTAMP
+    FROM order_product op
+    JOIN product_ingredient pi ON pi.product_id = op.product_id
+    WHERE
+      op.order_id = NEW.order_id
+      AND ii.ingredient_id = pi.ingredient_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_restore_ingredient_inventory
+AFTER UPDATE ON orders
+FOR EACH ROW
+EXECUTE FUNCTION restore_ingredient_inventory_on_cancel();
 
 -- Create trigger for automatic inventory update
 CREATE TRIGGER trigger_update_inventory
@@ -334,18 +387,23 @@ BEGIN
                 RAISE EXCEPTION 'Product ID % does not exist or is inactive', (order_item.value->>'product_id');
             END IF;
 
-            -- Check inventory stock
-            SELECT quantity_in_stock INTO current_stock
-            FROM inventory
-            WHERE product_id = (order_item.value->>'product_id')::INT;
-
-            IF current_stock IS NULL THEN
+            -- Check inventory stock for all ingredients of this product
+            -- Ensure all ingredients have sufficient stock
+            IF NOT EXISTS (
+                SELECT 1 FROM inventory
+                WHERE product_id = (order_item.value->>'product_id')::INT
+            ) THEN
                 RAISE EXCEPTION 'No inventory record found for product ID %', (order_item.value->>'product_id');
             END IF;
 
-            IF current_stock < (order_item.value->>'quantity')::INT THEN
-                RAISE EXCEPTION 'Insufficient stock for product ID %. Available: %, Requested: %',
-                    (order_item.value->>'product_id'), current_stock, (order_item.value->>'quantity')::INT;
+            -- Check if any ingredient has insufficient stock
+            IF EXISTS (
+                SELECT 1 FROM inventory
+                WHERE product_id = (order_item.value->>'product_id')::INT
+                AND quantity_in_stock < (order_item.value->>'quantity')::INT
+            ) THEN
+                RAISE EXCEPTION 'Insufficient stock for product ID %. One or more ingredients are out of stock.',
+                    (order_item.value->>'product_id');
             END IF;
 
             -- Calculate total amount

@@ -6,12 +6,14 @@ import { LinearGradient } from "expo-linear-gradient"
 import { router, useLocalSearchParams } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import AsyncStorage from "@react-native-async-storage/async-storage"
+import { supabase } from "../utils/supabaseClient"
 
 export default function LoginScreen() {
   const { role } = useLocalSearchParams()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [selectedRole, setSelectedRole] = useState<"admin" | "cashier">((role as "admin" | "cashier") || "cashier")
+  const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
     if (role === "admin" || role === "cashier") {
@@ -25,17 +27,49 @@ export default function LoginScreen() {
       return
     }
 
-    // Simple authentication logic
-    if (selectedRole === "admin" && username === "admin" && password === "admin123") {
-      // Store role in AsyncStorage
-      await AsyncStorage.setItem("userRole", "admin")
-      router.replace("/admin")
-    } else if (selectedRole === "cashier" && username === "cashier" && password === "cashier123") {
-      // Store role in AsyncStorage
-      await AsyncStorage.setItem("userRole", "cashier")
-      router.replace("/cashier")
-    } else {
-      Alert.alert("Error", "Invalid credentials")
+    try {
+      setIsLoading(true)
+
+      const tableName = selectedRole === "admin" ? "admin" : "cashier"
+
+      const { data, error } = await supabase
+        .from(tableName)
+        .select("*")
+        .eq("username", username)
+        .eq("password_hash", password)
+        .eq("is_active", true)
+        .single()
+
+      if (error) {
+        // If no rows are returned, Supabase may return an error with code "PGRST116"
+        console.error("Login error:", error)
+        Alert.alert("Login Failed", "Invalid username or password")
+        return
+      }
+
+      if (!data) {
+        Alert.alert("Login Failed", "Invalid username or password")
+        return
+      }
+
+      // Store role and basic user info in AsyncStorage
+      await AsyncStorage.multiSet([
+        ["userRole", selectedRole],
+        ["username", data.username ?? ""],
+        ["userId", String(data.admin_id ?? data.cashier_id ?? "")],
+      ])
+
+      // Navigate based on role
+      if (selectedRole === "admin") {
+        router.replace("/admin")
+      } else {
+        router.replace("/cashier")
+      }
+    } catch (err) {
+      console.error("Unexpected login error:", err)
+      Alert.alert("Error", "Something went wrong while logging in. Please try again.")
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -79,6 +113,7 @@ export default function LoginScreen() {
                   onChangeText={setUsername}
                   autoCapitalize="none"
                   placeholderTextColor="#9CA3AF"
+                  maxLength={50}
                 />
               </View>
 
@@ -91,18 +126,23 @@ export default function LoginScreen() {
                   onChangeText={setPassword}
                   secureTextEntry
                   placeholderTextColor="#9CA3AF"
+                  maxLength={50}
                 />
               </View>
             </View>
 
             {/* Login Button with gradient */}
-            <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
+            <TouchableOpacity style={styles.loginButton} onPress={handleLogin} disabled={isLoading}>
               <LinearGradient
                 colors={selectedRole === "cashier" ? ["#FF9F1C", "#FF5F00"] : ["#111827", "#000000"]}
                 style={styles.loginButtonGradient}
               >
                 <Text style={styles.loginButtonText}>
-                  {selectedRole === "cashier" ? "Sign in as Cashier" : "Sign in as Admin"}
+                  {isLoading
+                    ? "Signing in..."
+                    : selectedRole === "cashier"
+                      ? "Sign in as Cashier"
+                      : "Sign in as Admin"}
                 </Text>
               </LinearGradient>
             </TouchableOpacity>

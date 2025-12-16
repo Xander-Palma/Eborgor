@@ -233,8 +233,10 @@ export default function Inventory() {
               <View style={styles.alertItems}>
                 {lowStockItems.map((item) => (
                   <View key={item.product_id} style={styles.alertItem}>
-                    <Text style={styles.alertItemName}>{item.name}</Text>
-                    <Text style={styles.alertItemStock}>{item.quantity_in_stock} remaining</Text>
+                    <View>
+                      <Text style={styles.alertItemName}>{item.name}</Text>
+                      <Text style={styles.alertItemStock}>{item.quantity_in_stock} remaining</Text>
+                    </View>
                   </View>
                 ))}
               </View>

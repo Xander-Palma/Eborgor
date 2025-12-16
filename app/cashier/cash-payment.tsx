@@ -20,7 +20,34 @@ export default function CashPayment({ visible, onClose, totalAmount, onPaymentCo
   const [error, setError] = useState("")
   const [isProcessing, setIsProcessing] = useState(false)
 
-  const change = parseFloat(amountReceived) - totalAmount
+  const change = ((): number => {
+    const value = parseFloat(amountReceived)
+    if (!isFinite(value)) return 0
+    return value - totalAmount
+  })()
+
+  const sanitizeMoneyInput = (text: string): string => {
+    // Allow only digits and a single decimal point, with max 2 decimal places
+    let cleaned = text.replace(/[^0-9.]/g, "")
+
+    // If starts with a dot, prefix with 0
+    if (cleaned.startsWith(".")) {
+      cleaned = "0" + cleaned
+    }
+
+    const parts = cleaned.split(".")
+    if (parts.length > 1) {
+      // Keep only first dot and limit to two decimal places
+      cleaned = parts[0] + "." + parts[1].slice(0, 2)
+    }
+
+    // Hard cap total length to prevent huge numbers (e.g. 9999999999.99)
+    if (cleaned.length > 12) {
+      cleaned = cleaned.slice(0, 12)
+    }
+
+    return cleaned
+  }
 
   // Clear input and focus when modal opens
   useEffect(() => {
@@ -79,11 +106,13 @@ export default function CashPayment({ visible, onClose, totalAmount, onPaymentCo
                 placeholder="0.00"
                 value={amountReceived}
                 onChangeText={(text) => {
-                  setAmountReceived(text)
+                  const sanitized = sanitizeMoneyInput(text)
+                  setAmountReceived(sanitized)
                   setError("")
                 }}
                 keyboardType="decimal-pad"
                 autoFocus
+                maxLength={12}
               />
               {error ? <Text style={styles.errorText}>{error}</Text> : null}
             </View>

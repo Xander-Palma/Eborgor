@@ -87,27 +87,71 @@ INSERT INTO product (name, description, price, category_id, item_code, image_url
 ('Supreme Cheese', 'Extra cheese', 14.00, 8, 'EXT003', '/images/cheese.jpg'),
 ('Coleslaw', 'Fresh coleslaw', 13.00, 8, 'EXT004', '/images/coleslaw.jpg');
 
--- Insert Inventory for all products
-INSERT INTO inventory (product_id, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
-SELECT 
-    product_id,
-    1,
-    CASE 
-        WHEN category_id IN (1, 2, 3) THEN 40  -- Premium & Big burgers
-        WHEN category_id IN (4, 5) THEN 60     -- Sulit & Chicken
-        WHEN category_id = 6 THEN 50           -- Hotdogs
-        WHEN category_id = 7 THEN 100          -- Drinks
-        WHEN category_id = 8 THEN 80           -- Extras
-    END as quantity_in_stock,
-    CASE 
-        WHEN category_id IN (1, 2, 3) THEN 10
-        WHEN category_id IN (4, 5) THEN 15
-        WHEN category_id = 6 THEN 12
-        WHEN category_id = 7 THEN 20
-        WHEN category_id = 8 THEN 15
-    END as minimum_threshold,
-    CURRENT_TIMESTAMP
-FROM product;
+-- Insert Inventory for ingredients
+-- Premium Steakburger ingredients
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Steakburger patty', 1, 40, 10, CURRENT_TIMESTAMP FROM product WHERE name = 'Premium Steakburger';
+
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Bun', 1, 200, 50, CURRENT_TIMESTAMP FROM product WHERE name = 'Premium Steakburger';
+
+-- Big Time Burgers ingredients
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Beef patty', 1, 40, 10, CURRENT_TIMESTAMP FROM product WHERE name IN ('Bacon Cheese Burger', 'Black Pepper Burger');
+
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Bun', 1, 200, 50, CURRENT_TIMESTAMP FROM product WHERE name IN ('Bacon Cheese Burger', 'Black Pepper Burger');
+
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Cheese', 1, 100, 25, CURRENT_TIMESTAMP FROM product WHERE name = 'Bacon Cheese Burger';
+
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Bacon', 1, 80, 20, CURRENT_TIMESTAMP FROM product WHERE name = 'Bacon Cheese Burger';
+
+-- Sandwiches ingredients
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Chicken patty', 1, 40, 10, CURRENT_TIMESTAMP FROM product WHERE name IN ('Crispy Chicken Chimichurri Burger', 'Crispy Chicken Roasted Sesame Burger', '50/50 Veggie Chicken Burger');
+
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Beef patty', 1, 40, 10, CURRENT_TIMESTAMP FROM product WHERE name = 'Beef Shawarma Burger';
+
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Bun', 1, 200, 50, CURRENT_TIMESTAMP FROM product WHERE category_id = 3;
+
+-- Sulit Sandwiches ingredients
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Beef patty', 1, 60, 15, CURRENT_TIMESTAMP FROM product WHERE category_id = 4;
+
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Bun', 1, 200, 50, CURRENT_TIMESTAMP FROM product WHERE category_id = 4;
+
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Cheese', 1, 100, 25, CURRENT_TIMESTAMP FROM product WHERE name LIKE '%Cheesy%' AND category_id = 4;
+
+-- Chicken Time Sandwiches ingredients
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Chicken patty', 1, 60, 15, CURRENT_TIMESTAMP FROM product WHERE category_id = 5;
+
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Bun', 1, 200, 50, CURRENT_TIMESTAMP FROM product WHERE category_id = 5;
+
+-- Hotdogs ingredients
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Hotdog', 1, 50, 12, CURRENT_TIMESTAMP FROM product WHERE category_id = 6;
+
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Bun', 1, 200, 50, CURRENT_TIMESTAMP FROM product WHERE category_id = 6;
+
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, 'Cheese', 1, 100, 25, CURRENT_TIMESTAMP FROM product WHERE name LIKE '%Cheese%' AND category_id = 6;
+
+-- Drinks (use product name as ingredient)
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, name, 1, 100, 20, CURRENT_TIMESTAMP FROM product WHERE category_id = 7;
+
+-- Extras (use product name as ingredient)
+INSERT INTO inventory (product_id, ingredient, admin_id, quantity_in_stock, minimum_threshold, last_restock_date)
+SELECT product_id, name, 1, 80, 15, CURRENT_TIMESTAMP FROM product WHERE category_id = 8;
 
 -- Verify data
 SELECT 'SETUP COMPLETE!' as status;

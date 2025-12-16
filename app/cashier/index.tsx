@@ -951,6 +951,7 @@ function OrderPanel() {
           value={customerName}
           onChangeText={setCustomerName}
           placeholderTextColor="#9CA3AF"
+          maxLength={80}
         />
       </View>
 

@@ -29,6 +29,7 @@ export default function Header({ searchQuery = "", onSearchChange, showSearch = 
             placeholder="Search menu items..."
             value={searchQuery}
             onChangeText={onSearchChange}
+          maxLength={100}
           />
         </View>
       )}

@@ -8,9 +8,10 @@ import { supabase } from "../../utils/supabaseClient"
 import { getProductImage } from "../../utils/constants"
 
 interface InventoryItem {
+  item_id: number
   product_id: number
-  name: string
-  price: number
+  ingredient: string
+  product_name: string
   category_name: string
   quantity_in_stock: number
   minimum_threshold: number
@@ -27,6 +28,22 @@ export default function AdminInventory() {
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
   const [restockQuantity, setRestockQuantity] = useState("")
   const [restockLoading, setRestockLoading] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<string>("All")
+  const [searchQuery, setSearchQuery] = useState<string>("")
+
+  const sanitizeIntegerInput = (text: string, max = 1000000000): string => {
+    // Keep only digits
+    const digits = text.replace(/[^0-9]/g, "")
+    if (!digits) return ""
+
+    // Prevent extremely large numbers that could cause Infinity or performance issues
+    const numeric = parseInt(digits, 10)
+    if (!isNaN(numeric) && numeric > max) {
+      return String(max)
+    }
+
+    return digits
+  }
 
   useEffect(() => {
     const fetchInventory = async () => {
@@ -35,77 +52,48 @@ export default function AdminInventory() {
       setError(null)
 
       try {
-        // First, get all active products
-        const { data: activeProducts, error: productsError } = await supabase
-          .from("product")
-          .select(`
-            product_id,
-            name,
-            price,
-            category:category(name)
-          `)
-          .eq("is_active", true)
-
-        if (productsError) throw productsError
-
-        // Then get inventory data for these products
-        const productIds = activeProducts?.map(p => p.product_id) || []
+        // Fetch inventory with ingredient and product info
         const { data: inventoryData, error: inventoryError } = await supabase
           .from("inventory")
           .select(`
+            item_id,
             product_id,
+            ingredient,
             quantity_in_stock,
             minimum_threshold,
             last_restock_date,
-            last_updated
+            last_updated,
+            product:product!inner(
+              name,
+              category:category(name),
+              is_active
+            )
           `)
-          .in("product_id", productIds)
+          .eq("product.is_active", true)
+          .order("ingredient", { ascending: true })
 
         if (inventoryError) throw inventoryError
 
-        // Create inventory map for quick lookup
-        const inventoryMap = new Map()
-        inventoryData?.forEach(inv => {
-          inventoryMap.set(inv.product_id, inv)
-        })
+        console.log(`📦 Inventory records:`, inventoryData?.slice(0, 3))
 
-        if (error) {
-          setError("Failed to load inventory data")
-          console.error("Inventory fetch error:", error)
-          return
-        }
-
-        console.log(`📊 Active products:`, activeProducts?.slice(0, 3).map((p: any) => ({
-          product_id: p.product_id,
-          name: p.name
-        })))
-        console.log(`📦 Inventory records:`, inventoryData?.slice(0, 3).map((inv: any) => ({
+        // Format data to show ingredients
+        const formattedData: InventoryItem[] = (inventoryData || []).map((inv: any) => ({
+          item_id: inv.item_id,
           product_id: inv.product_id,
-          quantity_in_stock: inv.quantity_in_stock
-        })))
-
-        // Format data by merging products with inventory
-        const formattedData: InventoryItem[] = (activeProducts || []).map((product: any) => {
-          const inventory = inventoryMap.get(product.product_id)
-          return {
-            product_id: product.product_id,
-            name: product.name,
-            price: product.price,
-            category_name: product.category?.name || "Uncategorized",
-            quantity_in_stock: inventory?.quantity_in_stock || 0,
-            minimum_threshold: inventory?.minimum_threshold || 10,
-            last_restock_date: inventory?.last_restock_date,
-            last_updated: inventory?.last_updated || new Date().toISOString(),
-          }
-        })
+          ingredient: inv.ingredient,
+          product_name: inv.product?.name || "Unknown Product",
+          category_name: inv.product?.category?.name || "Uncategorized",
+          quantity_in_stock: inv.quantity_in_stock || 0,
+          minimum_threshold: inv.minimum_threshold || 10,
+          last_restock_date: inv.last_restock_date,
+          last_updated: inv.last_updated || new Date().toISOString(),
+        }))
 
         console.log(`✅ Formatted inventory data:`, formattedData.slice(0, 3).map(item => ({
-          id: item.product_id,
-          name: item.name,
+          id: item.item_id,
+          ingredient: item.ingredient,
           stock: item.quantity_in_stock
         })))
-
-        setInventoryData(formattedData)
 
         setInventoryData(formattedData)
       } catch (err) {
@@ -125,7 +113,7 @@ export default function AdminInventory() {
       return
     }
 
-    const quantityToAdd = parseInt(restockQuantity.trim())
+    const quantityToAdd = parseInt(restockQuantity.trim(), 10)
     if (isNaN(quantityToAdd) || quantityToAdd <= 0) {
       Alert.alert("Error", "Please enter a valid positive number")
       return
@@ -135,38 +123,15 @@ export default function AdminInventory() {
     try {
       const newStock = selectedItem.quantity_in_stock + quantityToAdd
 
-      // Check if inventory record exists
-      const { data: existingInventory } = await supabase
+      // Update inventory using item_id
+      const { error } = await supabase
         .from("inventory")
-        .select("product_id")
-        .eq("product_id", selectedItem.product_id)
-        .single()
-
-      let error
-      if (existingInventory) {
-        // Update existing inventory
-        const result = await supabase
-          .from("inventory")
-          .update({
-            quantity_in_stock: newStock,
-            last_restock_date: new Date().toISOString(),
-            last_updated: new Date().toISOString()
-          })
-          .eq("product_id", selectedItem.product_id)
-        error = result.error
-      } else {
-        // Create new inventory record
-        const result = await supabase
-          .from("inventory")
-          .insert({
-            product_id: selectedItem.product_id,
-            quantity_in_stock: newStock,
-            minimum_threshold: 10,
-            last_restock_date: new Date().toISOString(),
-            last_updated: new Date().toISOString()
-          })
-        error = result.error
-      }
+        .update({
+          quantity_in_stock: newStock,
+          last_restock_date: new Date().toISOString(),
+          last_updated: new Date().toISOString()
+        })
+        .eq("item_id", selectedItem.item_id)
 
       if (error) {
         console.error("Restock error:", error)
@@ -182,7 +147,7 @@ export default function AdminInventory() {
       setSelectedItem(null)
       setRestockQuantity("")
 
-      Alert.alert("Success", `Successfully added ${quantityToAdd} items to ${selectedItem.name}`)
+      Alert.alert("Success", `Successfully added ${quantityToAdd} items to ${selectedItem.ingredient}`)
     } catch (err) {
       console.error("Restock error:", err)
       Alert.alert("Error", "Something went wrong while restocking")
@@ -218,7 +183,18 @@ export default function AdminInventory() {
 
   const lowStockItems = inventoryData.filter((item) => item.quantity_in_stock <= item.minimum_threshold)
   const totalItems = inventoryData.length
-  const totalValue = inventoryData.reduce((sum, item) => sum + item.price * item.quantity_in_stock, 0)
+  const totalValue = inventoryData.reduce((sum, item) => sum + item.quantity_in_stock, 0)
+
+  const categoryNames = Array.from(
+    new Set(inventoryData.map((item) => item.category_name || "Uncategorized")),
+  )
+
+  const filteredInventory = inventoryData.filter((item) => {
+    const matchesCategory =
+      selectedCategory === "All" || item.category_name === selectedCategory
+    const matchesSearch = item.ingredient.toLowerCase().includes(searchQuery.toLowerCase())
+    return matchesCategory && matchesSearch
+  })
 
   if (loading) {
     return (
@@ -272,6 +248,60 @@ export default function AdminInventory() {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Search + Category Filters */}
+        <View style={styles.searchAndFilters}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search items..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholderTextColor="#9CA3AF"
+            maxLength={100}
+          />
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.categoryScrollOuter}
+          >
+            <TouchableOpacity
+              style={[
+                styles.categoryPill,
+                selectedCategory === "All" && styles.categoryPillActive,
+              ]}
+              onPress={() => setSelectedCategory("All")}
+            >
+              <Text
+                style={[
+                  styles.categoryPillText,
+                  selectedCategory === "All" && styles.categoryPillTextActive,
+                ]}
+              >
+                All
+              </Text>
+            </TouchableOpacity>
+            {categoryNames.map((name) => (
+              <TouchableOpacity
+                key={name}
+                style={[
+                  styles.categoryPill,
+                  selectedCategory === name && styles.categoryPillActive,
+                ]}
+                onPress={() => setSelectedCategory(name)}
+              >
+                <Text
+                  style={[
+                    styles.categoryPillText,
+                    selectedCategory === name && styles.categoryPillTextActive,
+                  ]}
+                >
+                  {name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
         {/* Inventory Summary */}
         <View style={styles.summaryGrid}>
           <View style={styles.summaryCard}>
@@ -302,9 +332,18 @@ export default function AdminInventory() {
             </View>
             <View style={styles.alertItems}>
               {lowStockItems.map((item) => (
-                <View key={item.product_id} style={styles.alertItem}>
-                  <Text style={styles.alertItemName}>{item.name}</Text>
-                  <Text style={styles.alertItemStock}>{item.quantity_in_stock} remaining</Text>
+                <View key={item.item_id} style={styles.alertItem}>
+                  <View>
+                    <Text style={styles.alertItemName}>{item.ingredient}</Text>
+                    <Text style={styles.alertItemStock}>{item.quantity_in_stock} remaining</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.restockButton}
+                    onPress={() => openRestockModal(item)}
+                  >
+                    <Ionicons name="add-circle-outline" size={16} color="#F97316" />
+                    <Text style={styles.restockText}>Restock</Text>
+                  </TouchableOpacity>
                 </View>
               ))}
             </View>
@@ -314,20 +353,20 @@ export default function AdminInventory() {
         {/* Inventory List */}
         <View style={styles.inventoryList}>
           <Text style={styles.sectionTitle}>All Items</Text>
-          {inventoryData.map((item) => {
+          {filteredInventory.map((item) => {
             const stockStatus = getStockStatus(item.quantity_in_stock, item.minimum_threshold)
             const stockColor = getStockColor(stockStatus)
 
             return (
-              <View key={item.product_id} style={styles.inventoryItem}>
+              <View key={item.item_id} style={styles.inventoryItem}>
                 <View style={styles.itemLeft}>
                   <View style={styles.itemImage}>
-                    <Image source={getProductImage(item.name)} style={styles.itemImageContent} resizeMode="contain" />
+                    <Image source={getProductImage(item.product_name)} style={styles.itemImageContent} resizeMode="contain" />
                   </View>
                   <View style={styles.itemDetails}>
-                    <Text style={styles.itemName}>{item.name}</Text>
+                    <Text style={styles.itemName}>{item.ingredient}</Text>
                     <Text style={styles.itemCategory}>{item.category_name}</Text>
-                    <Text style={styles.itemPrice}>₱{item.price.toFixed(2)}</Text>
+                    <Text style={styles.itemPrice}>Product: {item.product_name}</Text>
                   </View>
                 </View>
 
@@ -372,11 +411,12 @@ export default function AdminInventory() {
             {selectedItem && (
               <View style={styles.modalBody}>
                 <View style={styles.itemInfo}>
-                  <Text style={styles.itemInfoName}>{selectedItem.name}</Text>
+                  <Text style={styles.itemInfoName}>{selectedItem.ingredient}</Text>
                   <Text style={styles.itemInfoCategory}>{selectedItem.category_name}</Text>
                   <Text style={styles.itemInfoStock}>
                     Current stock: {selectedItem.quantity_in_stock}
                   </Text>
+                  <Text style={styles.itemInfoCategory}>Product: {selectedItem.product_name}</Text>
                 </View>
 
                 <View style={styles.inputContainer}>
@@ -384,7 +424,10 @@ export default function AdminInventory() {
                   <TextInput
                     style={styles.quantityInput}
                     value={restockQuantity}
-                    onChangeText={setRestockQuantity}
+                    onChangeText={(text) => {
+                      const sanitized = sanitizeIntegerInput(text)
+                      setRestockQuantity(sanitized)
+                    }}
                     placeholder="Enter quantity"
                     keyboardType="numeric"
                     autoFocus
@@ -489,6 +532,23 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 20,
+  },
+  searchAndFilters: {
+    marginBottom: 20,
+    gap: 10,
+  },
+  searchInput: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: "#1F2937",
+    backgroundColor: "#FFFFFF",
+  },
+  categoryScrollOuter: {
+    paddingVertical: 2,
   },
   summaryGrid: {
     flexDirection: "row",
@@ -674,6 +734,27 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#F97316",
     fontWeight: "700",
+  },
+  categoryPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "#E5E7EB",
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+  },
+  categoryPillActive: {
+    backgroundColor: "#F97316",
+    borderColor: "#F97316",
+  },
+  categoryPillText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#4B5563",
+  },
+  categoryPillTextActive: {
+    color: "#FFFFFF",
   },
   // Modal styles
   modalOverlay: {

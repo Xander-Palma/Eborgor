@@ -41,6 +41,32 @@ export default function MenuManagement() {
     is_active: true,
   })
   const [saving, setSaving] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<string>("All")
+  const [searchQuery, setSearchQuery] = useState<string>("")
+  const [newCategoryName, setNewCategoryName] = useState<string>("")
+
+  const sanitizeMoneyInput = (text: string): string => {
+    // Allow only digits and a single decimal point, with max 2 decimal places
+    let cleaned = text.replace(/[^0-9.]/g, "")
+
+    // If starts with a dot, prefix with 0
+    if (cleaned.startsWith(".")) {
+      cleaned = "0" + cleaned
+    }
+
+    const parts = cleaned.split(".")
+    if (parts.length > 1) {
+      // Keep only first dot and limit to two decimal places
+      cleaned = parts[0] + "." + parts[1].slice(0, 2)
+    }
+
+    // Hard cap total length to prevent huge numbers (e.g. 9999999999.99)
+    if (cleaned.length > 12) {
+      cleaned = cleaned.slice(0, 12)
+    }
+
+    return cleaned
+  }
 
   // Fetch products and categories
   const fetchData = async () => {
@@ -125,6 +151,7 @@ export default function MenuManagement() {
       item_code: "",
       is_active: true,
     })
+    setNewCategoryName("")
     setEditingProduct(null)
   }
 
@@ -145,6 +172,7 @@ export default function MenuManagement() {
       item_code: product.item_code || "",
       is_active: product.is_active,
     })
+    setNewCategoryName("")
     setEditingProduct(product)
     setModalVisible(true)
   }
@@ -162,6 +190,54 @@ export default function MenuManagement() {
       return
     }
 
+    // Resolve category: either use an existing one from the dropdown
+    // or create a new category when newCategoryName is provided.
+    let resolvedCategoryId: number | null = null
+
+    const trimmedNewCategory = newCategoryName.trim()
+    if (trimmedNewCategory) {
+      try {
+        const { data: existing, error: existingError } = await supabase
+          .from("category")
+          .select("category_id")
+          .eq("name", trimmedNewCategory)
+          .maybeSingle()
+
+        if (existingError) {
+          console.error("Error checking existing category:", existingError)
+        }
+
+        if (existing?.category_id) {
+          resolvedCategoryId = existing.category_id
+        } else {
+          const { data: inserted, error: insertError } = await supabase
+            .from("category")
+            .insert({
+              name: trimmedNewCategory,
+              description: null,
+              display_order: 0,
+              is_active: true,
+            })
+            .select("category_id")
+            .single()
+
+          if (insertError) {
+            console.error("Error creating new category:", insertError)
+            Alert.alert("Error", "Failed to create new category")
+            return
+          }
+
+          resolvedCategoryId = inserted?.category_id ?? null
+        }
+      } catch (catError) {
+        console.error("Unexpected category creation error:", catError)
+        Alert.alert("Error", "Failed to create new category")
+        return
+      }
+    } else if (formData.category_id) {
+      resolvedCategoryId = parseInt(formData.category_id, 10)
+    }
+
     setSaving(true)
     try {
       if (editingProduct) {
@@ -170,7 +246,7 @@ export default function MenuManagement() {
           name: formData.name.trim(),
           description: formData.description.trim() || null,
           price: price,
-          category_id: formData.category_id ? parseInt(formData.category_id) : null,
+          category_id: resolvedCategoryId,
           image_url: formData.image_url.trim() || null,
           item_code: formData.item_code.trim() || null,
           is_active: formData.is_active,
@@ -191,7 +267,7 @@ export default function MenuManagement() {
           name: formData.name.trim(),
           description: formData.description.trim() || null,
           price: price,
-          category_id: formData.category_id ? parseInt(formData.category_id) : null,
+          category_id: resolvedCategoryId,
           image_url: formData.image_url.trim() || null,
           item_code: formData.item_code.trim() || null,
           is_active: formData.is_active,
@@ -269,6 +345,13 @@ export default function MenuManagement() {
     }
   }
 
+  const filteredProducts = products.filter((product) => {
+    const matchesCategory =
+      selectedCategory === "All" || product.category?.name === selectedCategory
+    const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase())
+    return matchesCategory && matchesSearch
+  })
+
   if (loading) {
     return (
       <View style={styles.container}>
@@ -299,6 +382,60 @@ export default function MenuManagement() {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Search + Category Filters */}
+        <View style={styles.searchAndFilters}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search products..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholderTextColor="#9CA3AF"
+            maxLength={100}
+          />
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.categoryScrollOuter}
+          >
+            <TouchableOpacity
+              style={[
+                styles.categoryPill,
+                selectedCategory === "All" && styles.categoryPillActive,
+              ]}
+              onPress={() => setSelectedCategory("All")}
+            >
+              <Text
+                style={[
+                  styles.categoryPillText,
+                  selectedCategory === "All" && styles.categoryPillTextActive,
+                ]}
+              >
+                All
+              </Text>
+            </TouchableOpacity>
+            {categories.map((category) => (
+              <TouchableOpacity
+                key={category.category_id}
+                style={[
+                  styles.categoryPill,
+                  selectedCategory === category.name && styles.categoryPillActive,
+                ]}
+                onPress={() => setSelectedCategory(category.name)}
+              >
+                <Text
+                  style={[
+                    styles.categoryPillText,
+                    selectedCategory === category.name && styles.categoryPillTextActive,
+                  ]}
+                >
+                  {category.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
         <View style={styles.statsContainer}>
           <View style={styles.statCard}>
             <Text style={styles.statNumber}>{products.length}</Text>
@@ -321,7 +458,7 @@ export default function MenuManagement() {
         </View>
 
         <View style={styles.productsList}>
-          {products.length === 0 ? (
+          {filteredProducts.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="restaurant" size={48} color="#9CA3AF" />
               <Text style={styles.emptyStateText}>No products found</Text>
@@ -330,7 +467,7 @@ export default function MenuManagement() {
               </TouchableOpacity>
             </View>
           ) : (
-            products.map((product) => (
+            filteredProducts.map((product) => (
               <View key={product.product_id} style={styles.productCard}>
                 <View style={styles.productInfo}>
                   <View style={styles.productImage}>
@@ -415,6 +552,7 @@ export default function MenuManagement() {
                   placeholder="Enter product name"
                   value={formData.name}
                   onChangeText={(text) => setFormData({ ...formData, name: text })}
+                  maxLength={120}
                 />
               </View>
 
@@ -427,6 +565,7 @@ export default function MenuManagement() {
                   onChangeText={(text) => setFormData({ ...formData, description: text })}
                   multiline
                   numberOfLines={3}
+                  maxLength={500}
                 />
               </View>
 
@@ -436,8 +575,12 @@ export default function MenuManagement() {
                   style={styles.input}
                   placeholder="0.00"
                   value={formData.price}
-                  onChangeText={(text) => setFormData({ ...formData, price: text })}
+                  onChangeText={(text) => {
+                    const sanitized = sanitizeMoneyInput(text)
+                    setFormData({ ...formData, price: sanitized })
+                  }}
                   keyboardType="decimal-pad"
+                  maxLength={12}
                 />
               </View>
 
@@ -467,6 +610,17 @@ export default function MenuManagement() {
               </View>
 
               <View style={styles.formGroup}>
+                <Text style={styles.label}>Or Add New Category</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter new category name"
+                  value={newCategoryName}
+                  onChangeText={setNewCategoryName}
+                  maxLength={80}
+                />
+              </View>
+
+              <View style={styles.formGroup}>
                 <Text style={styles.label}>Item Code</Text>
                 <TextInput
                   style={styles.input}
@@ -474,6 +628,7 @@ export default function MenuManagement() {
                   value={formData.item_code}
                   onChangeText={(text) => setFormData({ ...formData, item_code: text })}
                   autoCapitalize="characters"
+                  maxLength={32}
                 />
               </View>
 
@@ -485,6 +640,7 @@ export default function MenuManagement() {
                   value={formData.image_url}
                   onChangeText={(text) => setFormData({ ...formData, image_url: text })}
                   autoCapitalize="none"
+                  maxLength={255}
                 />
               </View>
 
@@ -585,6 +741,23 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 20,
+  },
+  searchAndFilters: {
+    marginBottom: 20,
+    gap: 10,
+  },
+  searchInput: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: "#1F2937",
+    backgroundColor: "#FFFFFF",
+  },
+  categoryScrollOuter: {
+    paddingVertical: 2,
   },
   statsContainer: {
     flexDirection: "row",
@@ -807,6 +980,27 @@ const styles = StyleSheet.create({
   categoryScroll: {
     flexDirection: "row",
     marginBottom: 10,
+  },
+  categoryPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "#E5E7EB",
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+  },
+  categoryPillActive: {
+    backgroundColor: "#F97316",
+    borderColor: "#F97316",
+  },
+  categoryPillText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#4B5563",
+  },
+  categoryPillTextActive: {
+    color: "#FFFFFF",
   },
   categoryButton: {
     backgroundColor: "#F3F4F6",
