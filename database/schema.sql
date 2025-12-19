@@ -192,57 +192,6 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
--- Decrement ingredient_inventory whenever an order_product row is inserted
-CREATE OR REPLACE FUNCTION update_ingredient_inventory_on_order()
-RETURNS TRIGGER AS $$
-BEGIN
-  -- For each ingredient used by this product, subtract quantity_per_product * NEW.quantity
-  UPDATE ingredient_inventory ii
-  SET
-    quantity_in_stock = GREATEST(
-      0,
-      ii.quantity_in_stock - (NEW.quantity * pi.quantity_per_product)
-    ),
-    last_updated = CURRENT_TIMESTAMP
-  FROM product_ingredient pi
-  WHERE
-    pi.ingredient_id = ii.ingredient_id
-    AND pi.product_id = NEW.product_id;
-
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trigger_update_ingredient_inventory
-AFTER INSERT ON order_product
-FOR EACH ROW
-EXECUTE FUNCTION update_ingredient_inventory_on_order();
-
--- Restore ingredient_inventory when an order is cancelled
-CREATE OR REPLACE FUNCTION restore_ingredient_inventory_on_cancel()
-RETURNS TRIGGER AS $$
-BEGIN
-  IF OLD.status <> 'Cancelled' AND NEW.status = 'Cancelled' THEN
-    UPDATE ingredient_inventory ii
-    SET
-      quantity_in_stock = ii.quantity_in_stock + (op.quantity * pi.quantity_per_product),
-      last_updated = CURRENT_TIMESTAMP
-    FROM order_product op
-    JOIN product_ingredient pi ON pi.product_id = op.product_id
-    WHERE
-      op.order_id = NEW.order_id
-      AND ii.ingredient_id = pi.ingredient_id;
-  END IF;
-
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trigger_restore_ingredient_inventory
-AFTER UPDATE ON orders
-FOR EACH ROW
-EXECUTE FUNCTION restore_ingredient_inventory_on_cancel();
-
 -- Create trigger for automatic inventory update
 CREATE TRIGGER trigger_update_inventory
     AFTER INSERT ON order_product

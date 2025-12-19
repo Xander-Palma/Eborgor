@@ -128,20 +128,34 @@ export default function CashierPOS() {
     const fetchInitialData = async () => {
       // Fetch the next order number
       try {
-        const { data: lastOrder, error: orderError } = await supabase
+        const { data: lastOrderData, error: orderError } = await supabase
           .from("orders")
           .select("order_id")
           .order("order_id", { ascending: false })
           .limit(1)
-          .single()
 
-        if (!orderError && lastOrder) {
-          setCurrentOrderNumber(lastOrder.order_id + 1)
+        if (orderError) {
+          console.error("Error fetching last order number:", orderError)
+          // Check if it's a network/CORS error
+          if (orderError.message?.includes("Failed to fetch") || orderError.message?.includes("CORS")) {
+            console.warn("Network error - using default order number. Check Supabase CORS settings.")
+          }
+          setCurrentOrderNumber(2128) // Default fallback
+          return
+        }
+
+        // Handle case where no orders exist (empty array) or single order
+        if (lastOrderData && lastOrderData.length > 0) {
+          setCurrentOrderNumber(lastOrderData[0].order_id + 1)
         } else {
           setCurrentOrderNumber(2128) // Default if no orders exist
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Error fetching last order number:", err)
+        // Handle network errors gracefully
+        if (err?.message?.includes("Failed to fetch") || err?.code === "ECONNREFUSED") {
+          console.warn("Cannot connect to Supabase. Check your connection and CORS settings.")
+        }
         setCurrentOrderNumber(2128)
       }
     }
@@ -167,6 +181,14 @@ export default function CashierPOS() {
 
         if (error) {
           console.error("Error fetching menu items:", error)
+          // Check for network/CORS errors
+          if (error.message?.includes("Failed to fetch") || error.message?.includes("CORS")) {
+            console.error("Network/CORS error. Please check:")
+            console.error("1. Supabase project is running")
+            console.error("2. CORS is configured to allow http://localhost:8081")
+            console.error("3. Network connection is stable")
+          }
+          // Don't clear menu items on error - keep existing data if available
           return
         }
 
@@ -185,8 +207,12 @@ export default function CashierPOS() {
         const uniqueCategories = ["All", ...new Set(formattedItems.map(item => item.category))]
         setCategories(uniqueCategories)
 
-      } catch (err) {
+      } catch (err: any) {
         console.error("Error loading menu items:", err)
+        // Handle network errors
+        if (err?.message?.includes("Failed to fetch") || err?.code === "ECONNREFUSED") {
+          console.error("Cannot connect to Supabase. Check your connection and CORS settings.")
+        }
       } finally {
         setMenuLoading(false)
       }
@@ -203,20 +229,22 @@ export default function CashierPOS() {
 
   // Check inventory stock for a product (for real-time user feedback during cart building)
   // Note: Final inventory validation happens in the atomic transaction function
+  // Since a product can have multiple ingredients, we need to check the minimum stock across all ingredients
   const checkInventoryStock = async (productId: string): Promise<number> => {
     try {
       const { data, error } = await supabase
         .from("inventory")
         .select("quantity_in_stock")
         .eq("product_id", productId)
-        .single()
 
-      if (error || !data) {
+      if (error || !data || data.length === 0) {
         console.error("Error checking inventory:", error)
         return 0 // Assume out of stock if error
       }
 
-      return data.quantity_in_stock || 0
+      // Return the minimum stock across all ingredients (since we need all ingredients to be available)
+      const minStock = Math.min(...data.map(item => item.quantity_in_stock || 0))
+      return minStock
     } catch (err) {
       console.error("Error checking inventory stock:", err)
       return 0 // Assume out of stock if error
