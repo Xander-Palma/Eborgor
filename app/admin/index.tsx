@@ -1,11 +1,90 @@
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Dimensions, Image } from "react-native"
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Dimensions, Image, ActivityIndicator } from "react-native"
 import { LinearGradient } from "expo-linear-gradient"
 import { router } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
+import { useState, useEffect } from "react"
+import { supabase } from "../../utils/supabaseClient"
 
 const { width, height } = Dimensions.get("window")
 
 export default function AdminDashboard() {
+  const [stats, setStats] = useState({
+    todaySales: 0,
+    ordersToday: 0,
+    activeStaff: 0,
+    lowStockItems: 0,
+  })
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    fetchStats()
+  }, [])
+
+  const fetchStats = async () => {
+    try {
+      setLoading(true)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const todayStart = today.toISOString()
+      const todayEnd = new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString()
+
+      // Fetch today's sales and orders
+      const { data: todayOrders, error: ordersError } = await supabase
+        .from("orders")
+        .select("total_amount, order_id")
+        .gte("order_date", todayStart)
+        .lt("order_date", todayEnd)
+        .eq("status", "Completed")
+
+      if (ordersError) {
+        console.error("Error fetching today's orders:", ordersError)
+      }
+
+      const todaySales = todayOrders?.reduce((sum, order) => sum + (order.total_amount || 0), 0) || 0
+      const ordersToday = todayOrders?.length || 0
+
+      // Fetch active staff (cashiers + admins)
+      const [cashiersResult, adminsResult] = await Promise.all([
+        supabase
+          .from("cashier")
+          .select("cashier_id")
+          .eq("is_active", true),
+        supabase
+          .from("admin")
+          .select("admin_id")
+          .eq("is_active", true),
+      ])
+
+      const activeCashiers = cashiersResult.data?.length || 0
+      const activeAdmins = adminsResult.data?.length || 0
+      const activeStaff = activeCashiers + activeAdmins
+
+      // Fetch low stock items (inventory items below minimum threshold)
+      const { data: inventoryData, error: inventoryError } = await supabase
+        .from("inventory")
+        .select("quantity_in_stock, minimum_threshold")
+
+      if (inventoryError) {
+        console.error("Error fetching inventory:", inventoryError)
+      }
+
+      // Filter items where quantity_in_stock is less than minimum_threshold
+      const lowStockItems = inventoryData?.filter(
+        (item) => (item.quantity_in_stock || 0) < (item.minimum_threshold || 0)
+      ).length || 0
+
+      setStats({
+        todaySales,
+        ordersToday,
+        activeStaff,
+        lowStockItems,
+      })
+    } catch (error) {
+      console.error("Error fetching stats:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const adminFeatures = [
     {
       title: "User Management",
@@ -104,36 +183,42 @@ export default function AdminDashboard() {
         {/* Quick Stats */}
         <View style={styles.statsSection}>
           <Text style={styles.sectionTitle}>Quick Stats</Text>
-          <View style={styles.statsGrid}>
-            <View style={styles.statCard}>
-              <View style={[styles.statIconBg, { backgroundColor: "#DBEAFE" }]}>
-                <Ionicons name="cash" size={24} color="#3B82F6" />
-              </View>
-              <Text style={styles.statNumber}>₱25,430</Text>
-              <Text style={styles.statLabel}>Today's Sales</Text>
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#F59E0B" />
             </View>
-            <View style={styles.statCard}>
-              <View style={[styles.statIconBg, { backgroundColor: "#DCFCE7" }]}>
-                <Ionicons name="list" size={24} color="#10B981" />
+          ) : (
+            <View style={styles.statsGrid}>
+              <View style={styles.statCard}>
+                <View style={[styles.statIconBg, { backgroundColor: "#DBEAFE" }]}>
+                  <Ionicons name="cash" size={24} color="#3B82F6" />
+                </View>
+                <Text style={styles.statNumber}>₱{stats.todaySales.toLocaleString()}</Text>
+                <Text style={styles.statLabel}>Today's Sales</Text>
               </View>
-              <Text style={styles.statNumber}>142</Text>
-              <Text style={styles.statLabel}>Orders Today</Text>
-            </View>
-            <View style={styles.statCard}>
-              <View style={[styles.statIconBg, { backgroundColor: "#FEF3C7" }]}>
-                <Ionicons name="people" size={24} color="#F59E0B" />
+              <View style={styles.statCard}>
+                <View style={[styles.statIconBg, { backgroundColor: "#DCFCE7" }]}>
+                  <Ionicons name="list" size={24} color="#10B981" />
+                </View>
+                <Text style={styles.statNumber}>{stats.ordersToday}</Text>
+                <Text style={styles.statLabel}>Orders Today</Text>
               </View>
-              <Text style={styles.statNumber}>8</Text>
-              <Text style={styles.statLabel}>Active Staff</Text>
-            </View>
-            <View style={styles.statCard}>
-              <View style={[styles.statIconBg, { backgroundColor: "#F3E8FF" }]}>
-                <Ionicons name="shield-checkmark" size={24} color="#8B5CF6" />
+              <View style={styles.statCard}>
+                <View style={[styles.statIconBg, { backgroundColor: "#FEF3C7" }]}>
+                  <Ionicons name="people" size={24} color="#F59E0B" />
+                </View>
+                <Text style={styles.statNumber}>{stats.activeStaff}</Text>
+                <Text style={styles.statLabel}>Active Staff</Text>
               </View>
-              <Text style={styles.statNumber}>95%</Text>
-              <Text style={styles.statLabel}>System Uptime</Text>
+              <View style={styles.statCard}>
+                <View style={[styles.statIconBg, { backgroundColor: "#FEE2E2" }]}>
+                  <Ionicons name="warning" size={24} color="#EF4444" />
+                </View>
+                <Text style={styles.statNumber}>{stats.lowStockItems}</Text>
+                <Text style={styles.statLabel}>Low Stock Items</Text>
+              </View>
             </View>
-          </View>
+          )}
         </View>
 
         {/* Quick Access to POS */}
@@ -344,5 +429,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "700",
     letterSpacing: 0.3,
+  },
+  loadingContainer: {
+    padding: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
 })

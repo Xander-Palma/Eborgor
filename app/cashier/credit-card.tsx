@@ -31,13 +31,15 @@ export default function CreditCardPayment({
   const [isProcessing, setIsProcessing] = useState(false)
 
   const formatCardNumber = (text: string) => {
-    const digits = text.replace(/\s/g, "").slice(0, 16)
+    // Remove all non-numeric characters
+    const digits = text.replace(/\D/g, "").slice(0, 16)
     const groups = digits.match(/.{1,4}/g) || []
     return groups.join(" ")
   }
 
   const formatExpiry = (text: string) => {
-    const digits = text.replace(/\//g, "").slice(0, 4)
+    // Remove all non-numeric characters
+    const digits = text.replace(/\D/g, "").slice(0, 4)
     if (digits.length >= 2) {
       return digits.slice(0, 2) + "/" + digits.slice(2)
     }
@@ -55,7 +57,9 @@ export default function CreditCardPayment({
   }
 
   const handleCvvChange = (text: string) => {
-    setCvv(text.slice(0, 3))
+    // Remove all non-numeric characters and limit to 3 digits
+    const digits = text.replace(/\D/g, "").slice(0, 3)
+    setCvv(digits)
     setErrors({ ...errors, cvv: "" })
   }
 
